@@ -11,9 +11,9 @@
 #include <sys/epoll.h>
 #include <sys/resource.h>
 
-#include "./locker/locker.h"
-#include "./pool/threadpool.h"
-#include "./http/http_conn.h"
+#include "./locker/Locker.h"
+#include "./pool/Threadpool.h"
+#include "./http/HttpConn.h"
 #include "./timer/MinHeapTimer.h"
 
 const int MaxFD = 65536;

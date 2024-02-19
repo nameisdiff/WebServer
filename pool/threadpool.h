@@ -7,7 +7,7 @@
 #include <pthread.h>
 #include <cstdint>
 #include <sys/time.h>
-#include "../locker/locker.h"
+#include "../locker/Locker.h"
 
 template<typename T >
 class threadpool {
