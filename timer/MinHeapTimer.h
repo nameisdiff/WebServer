@@ -22,8 +22,8 @@ public:
     }
 public:
     time_t expire;
-    void (*cb_func)(client_data*);
-    client_data* user_data;
+    void (*cb_func)(client_data&);
+    client_data user_data;
 };
 
 class time_heap {

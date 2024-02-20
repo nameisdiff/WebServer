@@ -18,7 +18,7 @@
 
 const int MaxFD = 65536;
 const int MaxEventNumber = 10000;
-const int TimeSlot = 5;
+const int TimeSlot = 600;
 const int TimeHeapSize = 100;
 
 extern int removefd(int epollfd, int fd);
@@ -40,11 +40,10 @@ void timer_handler(time_heap* timeHeap) {
     alarm(TimeSlot);
 }
 
-void cb_func(client_data* user_data) {
-    epoll_ctl(epollfd, EPOLL_CTL_DEL, user_data->sockfd, 0);
-    assert(user_data);
-    close(user_data->sockfd);
-    printf("close fd %d\n", user_data->sockfd);
+void cb_func(client_data& user_data) {
+    epoll_ctl(epollfd, EPOLL_CTL_DEL, user_data.sockfd, 0);
+    close(user_data.sockfd);
+    printf("close fd %d\n", user_data.sockfd);
 }
 
 void addsig(int sig, void(handler)(int), bool restart = true) {
@@ -74,9 +73,9 @@ void setFdLimit() {
 }
 
 void addTimerToHeap(time_heap* timeHeap, int connfd) {
-    heap_timer* heapTimer = new heap_timer(20);
+    heap_timer* heapTimer = new heap_timer(600);
     heapTimer->cb_func = cb_func;
-    heapTimer->user_data->sockfd = connfd;
+    heapTimer->user_data.sockfd = connfd;
     timeHeap->add_timer(heapTimer);
 }
 

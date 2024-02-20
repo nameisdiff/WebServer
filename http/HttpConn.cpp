@@ -1,4 +1,4 @@
-#include "http_conn.h"
+#include "HttpConn.h"
 
 const char* ok_200_title = "OK";
 const char* error_400_title = "Bad Request";
@@ -9,7 +9,7 @@ const char* error_404_title = "Not Found";
 const char* error_404_form = "The requested file was not found on this server.\n";
 const char* error_500_title = "Internal Error";
 const char* error_500_form = "There was an unusual problem serving the requested file.\n";
-const char* doc_root = "/var/www/html";
+const char* doc_root = "./html";
 
 int setnonblocking(int fd) {
     int old_option = fcntl(fd, F_GETFL);
@@ -254,7 +254,14 @@ http_conn::HTTP_CODE http_conn::process_read() {
 http_conn::HTTP_CODE http_conn::do_request() {
     strcpy(m_real_file, doc_root);
     int len = strlen(doc_root);
-    strncpy(m_real_file + len, m_url, FILENAME_LEN - len - 1);
+
+    /* 根目录返回index.html */
+    if (strcmp(m_url, "/") == 0) {
+        strncpy(m_real_file + len, "/index.html", FILENAME_LEN - len - 1);
+    } else {
+        strncpy(m_real_file + len, m_url, FILENAME_LEN - len - 1);
+    }
+
     if (stat(m_real_file, &m_file_stat) < 0) {
         return NO_RESOURCE;
     }
