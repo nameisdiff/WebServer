@@ -66,6 +66,7 @@ private:
     bool add_content_length(int content_length);
     bool add_linger();
     bool add_blank_line();
+    void process_login();
 
 public:
     static int m_epollfd;
@@ -91,6 +92,7 @@ private:
     char* m_host;
     int m_content_length;
     bool m_linger;
+    char* m_content = nullptr;
 
     char* m_file_address;
     struct stat m_file_stat;

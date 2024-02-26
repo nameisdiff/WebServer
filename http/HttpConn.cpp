@@ -1,4 +1,9 @@
 #include "HttpConn.h"
+#include <iostream>
+#include <string>
+#include <sstream>
+#include <map>
+#include <mysql/mysql.h>
 
 const char* ok_200_title = "OK";
 const char* error_400_title = "Bad Request";
@@ -195,6 +200,14 @@ http_conn::HTTP_CODE http_conn::parse_headers(char* text) {
 
 http_conn::HTTP_CODE http_conn::parse_content(char* text) {
     if (m_read_idx >= (m_content_length + m_checked_idx)) {
+        // 解析请求正文，text是http请求，将空行之后的内容存储到m_content
+        if (m_content_length > 0) {
+            if (!m_content) {
+                m_content = new char[m_content_length + 1];
+            }
+            memcpy(m_content, text, m_content_length);
+            m_content[m_content_length] = '\0';
+        }
         text[m_content_length] = '\0';
         return GET_REQUEST;
     }
@@ -251,13 +264,100 @@ http_conn::HTTP_CODE http_conn::process_read() {
     return NO_REQUEST;
 }
 
+std::map<std::string, std::string> parseQueryString(const std::string& query) {
+    std::map<std::string, std::string> data;
+    std::istringstream queryStream(query);
+    std::string pair;
+
+    while (std::getline(queryStream, pair, '&')) {
+        size_t equalPos = pair.find('=');
+        if (equalPos != std::string::npos) {
+            std::string key = pair.substr(0, equalPos);
+            std::string value = pair.substr(equalPos + 1);
+            data[key] = value;
+        }
+    }
+
+    return data;
+}
+
+/* todo 可能有mysql注入风险 */
+bool checkByMysql(std::string& username, std::string& passwd) {
+    MYSQL *conn;
+    MYSQL_RES *res;
+    MYSQL_ROW row;
+
+    const char *server = "localhost"; // MySQL服务器地址
+    const char *user = "root"; // MySQL用户名
+    const char *password = "Asd584251314."; // MySQL密码
+    const char *database = "mysql"; // 要访问的数据库名称
+
+    conn = mysql_init(NULL);
+
+    // 尝试与数据库建立连接
+    if (!mysql_real_connect(conn, server, user, password, database, 0, NULL, 0)) {
+        std::cerr << "连接失败: " << mysql_error(conn) << std::endl;
+        return false;
+    }
+
+    char order[256] = { 0 };
+    snprintf(order, 256, "SELECT player_name, player_password FROM players WHERE player_name='%s' LIMIT 1", username.c_str());
+
+    // 执行SQL查询
+    if (mysql_query(conn, order)) {
+        std::cerr << "查询失败: " << mysql_error(conn) << std::endl;
+        return false;
+    }
+
+    res = mysql_use_result(conn);
+    if ((row = mysql_fetch_row(res)) == NULL) {
+        return false;
+    }
+    std::string pwd(row[1]);
+
+    // 释放结果集占用的内存
+    mysql_free_result(res);
+    // 关闭数据库连接
+    mysql_close(conn);
+
+    if (pwd == passwd) {
+        return true;
+    } else {
+        return false;
+    }
+}
+
+void http_conn::process_login() {
+    int len = strlen(doc_root);
+
+    std::string url(m_url);
+    size_t pos = url.find("?");
+    std::string query = pos != std::string::npos ? url.substr(pos + 1) : "";
+
+    auto queryParams = parseQueryString(query);
+
+    std::string username = queryParams["username"];
+    std::string password = queryParams["password"];
+
+    // 实际项目中，这里应该是查询数据库而不是硬编码的比对
+    if (checkByMysql(username, password)) {
+        // 登录成功
+        strncpy(m_real_file + len, "/success.html", FILENAME_LEN - len - 1);
+    } else {
+        // 登录失败
+        strncpy(m_real_file + len, "/failed.html", FILENAME_LEN - len - 1);
+    }
+}
+
 http_conn::HTTP_CODE http_conn::do_request() {
     strcpy(m_real_file, doc_root);
     int len = strlen(doc_root);
 
-    /* 根目录返回index.html */
+    /* 根目录返回login.html */
     if (strcmp(m_url, "/") == 0) {
-        strncpy(m_real_file + len, "/index.html", FILENAME_LEN - len - 1);
+        strncpy(m_real_file + len, "/login.html", FILENAME_LEN - len - 1);
+    } else if (strncmp(m_url, "/login", 6) == 0) {
+        process_login();
     } else {
         strncpy(m_real_file + len, m_url, FILENAME_LEN - len - 1);
     }
