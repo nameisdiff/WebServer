@@ -67,6 +67,7 @@ private:
     bool add_linger();
     bool add_blank_line();
     void process_login();
+    void process_register();
 
 public:
     static int m_epollfd;

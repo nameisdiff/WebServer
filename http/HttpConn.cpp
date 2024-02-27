@@ -330,6 +330,7 @@ bool checkByMysql(std::string& username, std::string& passwd) {
 void http_conn::process_login() {
     int len = strlen(doc_root);
 
+    /* 解码 */
     std::string url(m_url);
     size_t pos = url.find("?");
     std::string query = pos != std::string::npos ? url.substr(pos + 1) : "";
@@ -339,12 +340,87 @@ void http_conn::process_login() {
     std::string username = queryParams["username"];
     std::string password = queryParams["password"];
 
-    // 实际项目中，这里应该是查询数据库而不是硬编码的比对
+    /* 校验密码 */
     if (checkByMysql(username, password)) {
         // 登录成功
         strncpy(m_real_file + len, "/success.html", FILENAME_LEN - len - 1);
     } else {
         // 登录失败
+        strncpy(m_real_file + len, "/failed.html", FILENAME_LEN - len - 1);
+    }
+}
+
+bool registerByMysql(std::string& username, std::string& passwd) {
+    MYSQL *conn;
+    MYSQL_RES *res;
+    MYSQL_ROW row;
+
+    const char *server = "localhost"; // MySQL服务器地址
+    const char *user = "root"; // MySQL用户名
+    const char *password = "Asd584251314."; // MySQL密码
+    const char *database = "mysql"; // 要访问的数据库名称
+
+    conn = mysql_init(NULL);
+
+    // 尝试与数据库建立连接
+    if (!mysql_real_connect(conn, server, user, password, database, 0, NULL, 0)) {
+        std::cerr << "连接失败: " << mysql_error(conn) << std::endl;
+        return false;
+    }
+
+    /* 校验注册账户是否已有 */
+    char order[256] = { 0 };
+    snprintf(order, 256, "SELECT player_name, player_password FROM players WHERE player_name='%s' LIMIT 1", username.c_str());
+
+    // 执行SQL查询
+    if (mysql_query(conn, order)) {
+        std::cerr << "查询失败: " << mysql_error(conn) << std::endl;
+        return false;
+    }
+
+    res = mysql_use_result(conn);
+    if ((row = mysql_fetch_row(res)) != NULL) {
+        return false;
+    }
+
+    /* 注册账号 */
+    bzero(order, 256);
+    snprintf(order, 256, "INSERT INTO players (player_name, player_password) VALUES ('%s', '%s')", username.c_str(), passwd.c_str());
+    if (mysql_query(conn, order)) {
+        std::cerr << "插入失败: " << mysql_error(conn) << std::endl;
+        return false;
+    }
+
+    // 释放结果集占用的内存
+    mysql_free_result(res);
+    // 关闭数据库连接
+    mysql_close(conn);
+    return true;
+}
+
+void http_conn::process_register() {
+    int len = strlen(doc_root);
+
+    std::string url(m_url);
+    size_t pos = url.find("?");
+    std::string query = pos != std::string::npos ? url.substr(pos + 1) : "";
+
+    auto queryParams = parseQueryString(query);
+
+    std::string username = queryParams["username"];
+    std::string password = queryParams["password"];
+    std::string confirm_password = queryParams["confirm-password"];
+
+    /* 密码不同 */
+    if (password != confirm_password) {
+        strncpy(m_real_file + len, "/failed.html", FILENAME_LEN - len - 1);
+    }
+
+    if (registerByMysql(username, password)) {
+        // 注册成功
+        strncpy(m_real_file + len, "/success.html", FILENAME_LEN - len - 1);
+    } else {
+        // 注册失败
         strncpy(m_real_file + len, "/failed.html", FILENAME_LEN - len - 1);
     }
 }
@@ -356,8 +432,10 @@ http_conn::HTTP_CODE http_conn::do_request() {
     /* 根目录返回login.html */
     if (strcmp(m_url, "/") == 0) {
         strncpy(m_real_file + len, "/login.html", FILENAME_LEN - len - 1);
-    } else if (strncmp(m_url, "/login", 6) == 0) {
+    } else if (strncmp(m_url, "/login?", 7) == 0) {
         process_login();
+    } else if (strncmp(m_url, "/register?", 10) == 0) {
+        process_register();
     } else {
         strncpy(m_real_file + len, m_url, FILENAME_LEN - len - 1);
     }
