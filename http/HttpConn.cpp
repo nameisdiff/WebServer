@@ -4,6 +4,8 @@
 #include <sstream>
 #include <map>
 #include <mysql/mysql.h>
+#include "../mysql/MySQLConnPool.h"
+#include "../mysql/MySQLConn.h"
 
 const char* ok_200_title = "OK";
 const char* error_400_title = "Bad Request";
@@ -283,42 +285,22 @@ std::map<std::string, std::string> parseQueryString(const std::string& query) {
 
 /* todo 可能有mysql注入风险 */
 bool checkByMysql(std::string& username, std::string& passwd) {
-    MYSQL *conn;
-    MYSQL_RES *res;
-    MYSQL_ROW row;
-
-    const char *server = "localhost"; // MySQL服务器地址
-    const char *user = "root"; // MySQL用户名
-    const char *password = "Asd584251314."; // MySQL密码
-    const char *database = "mysql"; // 要访问的数据库名称
-
-    conn = mysql_init(NULL);
-
-    // 尝试与数据库建立连接
-    if (!mysql_real_connect(conn, server, user, password, database, 0, NULL, 0)) {
-        std::cerr << "连接失败: " << mysql_error(conn) << std::endl;
-        return false;
-    }
+    MySQLConnPool* mysqlPool = MySQLConnPool::getMySQLConnPool();
+    shared_ptr<MySQLConn> mysqlConn = mysqlPool->getMySQLConn();
 
     char order[256] = { 0 };
     snprintf(order, 256, "SELECT player_name, player_password FROM players WHERE player_name='%s' LIMIT 1", username.c_str());
+    std::string sql = std::string(order);
 
-    // 执行SQL查询
-    if (mysql_query(conn, order)) {
-        std::cerr << "查询失败: " << mysql_error(conn) << std::endl;
+    if (!mysqlConn->query(sql)) {
+        std::cerr << "查找失败: " << mysqlConn->getError() << std::endl;
+    }
+    std::string pwd;
+    if (mysqlConn->next()) {
+        pwd = mysqlConn->getValue(1);
+    } else {
         return false;
     }
-
-    res = mysql_use_result(conn);
-    if ((row = mysql_fetch_row(res)) == NULL) {
-        return false;
-    }
-    std::string pwd(row[1]);
-
-    // 释放结果集占用的内存
-    mysql_free_result(res);
-    // 关闭数据库连接
-    mysql_close(conn);
 
     if (pwd == passwd) {
         return true;
@@ -351,50 +333,31 @@ void http_conn::process_login() {
 }
 
 bool registerByMysql(std::string& username, std::string& passwd) {
-    MYSQL *conn;
-    MYSQL_RES *res;
-    MYSQL_ROW row;
-
-    const char *server = "localhost"; // MySQL服务器地址
-    const char *user = "root"; // MySQL用户名
-    const char *password = "Asd584251314."; // MySQL密码
-    const char *database = "mysql"; // 要访问的数据库名称
-
-    conn = mysql_init(NULL);
-
-    // 尝试与数据库建立连接
-    if (!mysql_real_connect(conn, server, user, password, database, 0, NULL, 0)) {
-        std::cerr << "连接失败: " << mysql_error(conn) << std::endl;
-        return false;
-    }
+    MySQLConnPool* mysqlPool = MySQLConnPool::getMySQLConnPool();
+    shared_ptr<MySQLConn> mysqlConn = mysqlPool->getMySQLConn();
 
     /* 校验注册账户是否已有 */
     char order[256] = { 0 };
     snprintf(order, 256, "SELECT player_name, player_password FROM players WHERE player_name='%s' LIMIT 1", username.c_str());
+    std::string checkSql = std::string(order);
 
-    // 执行SQL查询
-    if (mysql_query(conn, order)) {
-        std::cerr << "查询失败: " << mysql_error(conn) << std::endl;
+    if (!mysqlConn->query(checkSql)) {
+        std::cerr << "查找失败: " << mysqlConn->getError() << std::endl;
         return false;
     }
-
-    res = mysql_use_result(conn);
-    if ((row = mysql_fetch_row(res)) != NULL) {
+    if (mysqlConn->next()) {
         return false;
     }
 
     /* 注册账号 */
     bzero(order, 256);
     snprintf(order, 256, "INSERT INTO players (player_name, player_password) VALUES ('%s', '%s')", username.c_str(), passwd.c_str());
-    if (mysql_query(conn, order)) {
-        std::cerr << "插入失败: " << mysql_error(conn) << std::endl;
+    std::string regisSql = std::string(order);
+
+    if (!mysqlConn->update(regisSql)) {
+        std::cerr << "插入失败: " << mysqlConn->getError() << std::endl;
         return false;
     }
-
-    // 释放结果集占用的内存
-    mysql_free_result(res);
-    // 关闭数据库连接
-    mysql_close(conn);
     return true;
 }
 
