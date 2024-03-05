@@ -1,5 +1,8 @@
 #include "HttpConn.h"
 #include <iostream>
+#include <hiredis/hiredis.h>
+#include <memory>
+#include <cstring>
 #include <string>
 #include <sstream>
 #include <map>
@@ -309,6 +312,73 @@ bool checkByMysql(std::string& username, std::string& passwd) {
     }
 }
 
+bool checkByRedis(const std::string& username, const std::string& passwd) {
+    // 连接到 Redis
+    redisContext* context = redisConnect("127.0.0.1", 6379);
+    if (context == NULL || context->err) {
+        if (context) {
+            std::cerr << "Redis连接失败: " << context->errstr << std::endl;
+        } else {
+            std::cerr << "无法分配Redis上下文" << std::endl;
+        }
+        // 如果 Redis 连接失败，直接返回 false，不影响主逻辑
+        return false;
+    }
+    
+    // 构建用于 Redis 查询的键
+    std::string key = "user:" + username;
+    redisReply* reply = (redisReply*)redisCommand(context, "GET %s", key.c_str());
+    bool result = false;
+    if (reply && reply->type == REDIS_REPLY_STRING) {
+        // 如果找到了键，并且密码匹配，验证成功
+        if (passwd == std::string(reply->str)) {
+            result = true;
+        }
+    }
+    // 释放 reply 和 Redis 连接
+    if (reply) freeReplyObject(reply);
+    redisFree(context);
+    return result;
+}
+
+bool checkByMysqlAndCache(std::string& username, std::string& passwd) {
+    // 首先尝试通过 Redis 验证
+    if (checkByRedis(username, passwd)) {
+        return true;
+    }
+
+    // Redis 中没有找到，查询 MySQL
+    MySQLConnPool* mysqlPool = MySQLConnPool::getMySQLConnPool();
+    std::shared_ptr<MySQLConn> mysqlConn = mysqlPool->getMySQLConn();
+    char order[256] = { 0 };
+    snprintf(order, 256, "SELECT player_name, player_password FROM players WHERE player_name='%s' LIMIT 1", username.c_str());
+    std::string sql = std::string(order);
+
+    if (!mysqlConn->query(sql)) {
+        std::cerr << "查找失败: " << mysqlConn->getError() << std::endl;
+    }
+    std::string pwd;
+    if (mysqlConn->next()) {
+        pwd = mysqlConn->getValue(1);
+    } else {
+        return false;
+    }
+
+    if (pwd == passwd) {
+        // 用户名和密码验证成功，将其添加到 Redis 缓存
+        redisContext* context = redisConnect("127.0.0.1", 6379);
+        if (context && !context->err) {
+            std::string key = "user:" + username;
+            // 假设我们设置缓存有效期为 1 小时 (3600 秒)
+            redisCommand(context, "SETEX %s 3600 %s", key.c_str(), passwd.c_str());
+            redisFree(context);
+        }
+        return true;
+    } else {
+        return false;
+    }
+}
+
 void http_conn::process_login() {
     int len = strlen(doc_root);
 
@@ -323,7 +393,7 @@ void http_conn::process_login() {
     std::string password = queryParams["password"];
 
     /* 校验密码 */
-    if (checkByMysql(username, password)) {
+    if (checkByMysqlAndCache(username, password)) {
         // 登录成功
         strncpy(m_real_file + len, "/success.html", FILENAME_LEN - len - 1);
     } else {
@@ -332,9 +402,9 @@ void http_conn::process_login() {
     }
 }
 
-bool registerByMysql(std::string& username, std::string& passwd) {
+bool registerByMysqlAndCache(std::string& username, std::string& passwd) {
     MySQLConnPool* mysqlPool = MySQLConnPool::getMySQLConnPool();
-    shared_ptr<MySQLConn> mysqlConn = mysqlPool->getMySQLConn();
+    std::shared_ptr<MySQLConn> mysqlConn = mysqlPool->getMySQLConn();
 
     /* 校验注册账户是否已有 */
     char order[256] = { 0 };
@@ -346,18 +416,37 @@ bool registerByMysql(std::string& username, std::string& passwd) {
         return false;
     }
     if (mysqlConn->next()) {
+        // 用户名已存在
         return false;
     }
 
     /* 注册账号 */
-    bzero(order, 256);
-    snprintf(order, 256, "INSERT INTO players (player_name, player_password) VALUES ('%s', '%s')", username.c_str(), passwd.c_str());
+    bzero(order, sizeof(order));
+    snprintf(order, sizeof(order), "INSERT INTO players (player_name, player_password) VALUES ('%s', '%s')", username.c_str(), passwd.c_str());
     std::string regisSql = std::string(order);
 
     if (!mysqlConn->update(regisSql)) {
         std::cerr << "插入失败: " << mysqlConn->getError() << std::endl;
         return false;
     }
+
+    // 注册成功后，将用户名和密码添加到 Redis 缓存
+    redisContext* context = redisConnect("127.0.0.1", 6379);
+    if (context && !context->err) {
+        std::string key = "user:" + username;
+        // 假设我们设置缓存有效期为 1 小时 (3600 秒)
+        redisCommand(context, "SETEX %s 3600 %s", key.c_str(), passwd.c_str());
+        redisFree(context);
+    } else {
+        if (context) {
+            std::cerr << "Redis连接失败: " << context->errstr << std::endl;
+            // 如果 Redis 连接失败，不应该影响主注册流程
+            redisFree(context);
+        } else {
+            std::cerr << "无法分配Redis上下文" << std::endl;
+        }
+    }
+
     return true;
 }
 
@@ -379,7 +468,7 @@ void http_conn::process_register() {
         strncpy(m_real_file + len, "/failed.html", FILENAME_LEN - len - 1);
     }
 
-    if (registerByMysql(username, password)) {
+    if (registerByMysqlAndCache(username, password)) {
         // 注册成功
         strncpy(m_real_file + len, "/success.html", FILENAME_LEN - len - 1);
     } else {

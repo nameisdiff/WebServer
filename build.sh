@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # 编译命令
-g++ WebServerMain.cpp ./timer/MinHeapTimer.cpp ./http/HttpConn.cpp ./mysql/MySQLConn.cpp ./mysql/MySQLConnPool.cpp -lpthread -L/usr/lib64 -ljsoncpp -L/usr/lib64/mysql -lmysqlclient -Iinclude -I/usr/include/jsoncpp -std=c++11 -o WebServer 
+g++ WebServerMain.cpp ./timer/MinHeapTimer.cpp ./http/HttpConn.cpp ./mysql/MySQLConn.cpp ./mysql/MySQLConnPool.cpp -lpthread -lhiredis -L/usr/lib64 -ljsoncpp -L/usr/lib64/mysql -lmysqlclient -Iinclude -I/usr/include/jsoncpp -std=c++11 -o WebServer 
 
 # 检查上一个命令是否成功执行
 if [ $? -eq 0 ]; then
